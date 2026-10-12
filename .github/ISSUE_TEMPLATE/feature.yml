@@ -1,0 +1,37 @@
+name: Feature
+description: "A new capability or user-visible change. Branch convention: feature/<issue#>-<slug>. PR must end with \"Closes #N\"."
+labels: [feature]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: One paragraph — the user-visible outcome.
+    validations:
+      required: true
+  - type: input
+    id: proposed-version
+    attributes:
+      label: Proposed version
+      description: "Semver this ships as (declared version — csproj <Version>, ADR 0012; the agent bumps it on the feature branch)."
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Verifiable, one checkbox per criterion.
+      placeholder: "- [ ] "
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: Explicitly excluded, so scope creep has a name.
+  - type: textarea
+    id: open-questions
+    attributes:
+      label: Open questions
+      description: Decisions still to settle before implementation.
