@@ -8,7 +8,7 @@ namespace Aeso.CalendarSync;
 public interface ICalendar
 {
     Task<List<CalendarEntry>> List(DateOnly today, CancellationToken ct);
-    Task Create(string id, Slot slot, CancellationToken ct);
+    Task Create(string id, Slot slot, CancellationToken ct, int candidateLimit = EventIdentity.CandidateLimit);
     Task Replace(CalendarEntry before, Slot slot, CancellationToken ct);
     Task Delete(CalendarEntry before, CancellationToken ct);
 }
@@ -42,6 +42,8 @@ public sealed class GoogleCalendar(HttpClient http, string calendarId, Func<Canc
             {
                 if (item.TryGetProperty("status", out var status) && status.GetString() == "cancelled") continue;
                 var entry = Parse(item);
+                if (entry.Summary.StartsWith("[AESO]", StringComparison.Ordinal) && entry.IsFuture(today) && string.IsNullOrEmpty(entry.ETag))
+                    throw new SyncException("Google managed event lacks planning concurrency evidence.");
                 if (!seenIds.Add(entry.Id)) throw new SyncException("Google pagination repeated event ID.");
                 entries.Add(entry);
             }
@@ -78,7 +80,8 @@ public sealed class GoogleCalendar(HttpClient http, string calendarId, Func<Canc
             var description = json.TryGetProperty("description", out var d) ? d.GetString() ?? "" : "";
             var id = json.GetProperty("id").GetString();
             if (string.IsNullOrEmpty(id)) throw new SyncException("Google event lacks ID.");
-            return new CalendarEntry(id, summary, description, startTime, endTime, day, defaults, endDay);
+            var etag = json.TryGetProperty("etag", out var tag) ? tag.GetString() : null;
+            return new CalendarEntry(id, summary, description, startTime, endTime, day, defaults, endDay, etag);
         }
         catch (SyncException) { throw; }
         catch (Exception ex) when (ex is InvalidOperationException or KeyNotFoundException or FormatException or ArgumentException) { throw new SyncException("Malformed Google event."); }
@@ -96,11 +99,11 @@ public sealed class GoogleCalendar(HttpClient http, string calendarId, Func<Canc
         var actual = await Get(id, ct);
         if (actual is null || Cancelled(actual.Value) || Parse(actual.Value).Id != id || !Parse(actual.Value).Matches(slot)) throw new SyncException("Google write readback did not match requested event.");
     }
-    public async Task Create(string id, Slot slot, CancellationToken ct)
+    public async Task Create(string id, Slot slot, CancellationToken ct, int candidateLimit = EventIdentity.CandidateLimit)
     {
         // Google retains cancelled IDs. Use a deterministic collision chain rather
         // than random IDs or claiming success from an unverified insert.
-        for (var attempt = 0; attempt < 100; attempt++)
+        for (var attempt = 0; attempt < candidateLimit; attempt++)
         {
             using var response = await Call(HttpMethod.Post, "?sendUpdates=none", Payload(id, slot), ct);
             if (response.StatusCode != HttpStatusCode.Conflict)
@@ -112,7 +115,7 @@ public sealed class GoogleCalendar(HttpClient http, string calendarId, Func<Canc
             var occupied = await Get(id, ct);
             if (occupied is not null && Cancelled(occupied.Value))
             {
-                id = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(id + ":cancelled")));
+                id = EventIdentity.Next(id);
                 continue;
             }
             if (occupied is null) throw new SyncException("Google insert conflict lacks readback evidence.");
@@ -123,7 +126,7 @@ public sealed class GoogleCalendar(HttpClient http, string calendarId, Func<Canc
             {
                 // Past entries are outside the timeMin list, but their IDs remain
                 // occupied. Protect them exactly like a removed-prefix entry.
-                id = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(id + ":protected")));
+                id = EventIdentity.Next(id);
                 continue;
             }
             if (!entry.Matches(slot)) throw new SyncException("Google insert conflict does not match requested event.");
@@ -135,11 +138,12 @@ public sealed class GoogleCalendar(HttpClient http, string calendarId, Func<Canc
     {
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime((clock ?? TimeProvider.System).GetUtcNow(), SourceParser.Lisbon).DateTime);
         if (!before.IsFuture(today) || !before.Summary.StartsWith("[AESO]", StringComparison.Ordinal)) throw new SyncException("Google event is protected from writes.");
+        if (string.IsNullOrEmpty(before.ETag)) throw new SyncException("Google planned event lacks concurrency evidence.");
         var actual = await Get(before.Id, ct);
         if (actual is null || Cancelled(actual.Value)) return null;
-        if (Parse(actual.Value) != before || !before.Summary.StartsWith("[AESO]", StringComparison.Ordinal)) throw new SyncException("Google event changed after planning; refusing write.");
-        if (!actual.Value.TryGetProperty("etag", out var etag) || string.IsNullOrEmpty(etag.GetString())) throw new SyncException("Google event lacks concurrency evidence.");
-        return etag.GetString();
+        var current = Parse(actual.Value);
+        if (current.ETag != before.ETag || current != before) throw new SyncException("Google event changed after planning; refusing write.");
+        return before.ETag;
     }
     public async Task Replace(CalendarEntry before, Slot slot, CancellationToken ct)
     {
@@ -185,7 +189,7 @@ public sealed class SyncRunner(ISchoolSource school, ICalendar calendar, SyncCon
             CheckDateBoundary();
             var replacement = plan.Actions.FirstOrDefault(x => x.Kind == "delete" && x.Id == create.Id);
             if (replacement is not null) await calendar.Replace(replacement.Existing!, create.Slot!, ct);
-            else await calendar.Create(create.Id, create.Slot!, ct);
+            else await calendar.Create(create.Id, create.Slot!, ct, create.CandidateLimit);
         }
         foreach (var delete in plan.Actions.Where(x => x.Kind == "delete" && !plan.Actions.Any(y => y.Kind == "create" && y.Id == x.Id)))
         {

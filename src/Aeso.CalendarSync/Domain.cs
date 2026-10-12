@@ -45,19 +45,29 @@ public static class SourceParser
     }
 }
 
-public sealed record CalendarEntry(string Id, string Summary, string Description, DateTimeOffset? Start, DateTimeOffset? End, DateOnly? AllDayStart, bool DefaultReminders, DateOnly? AllDayEnd = null)
+public sealed record CalendarEntry(string Id, string Summary, string Description, DateTimeOffset? Start, DateTimeOffset? End, DateOnly? AllDayStart, bool DefaultReminders, DateOnly? AllDayEnd = null, string? ETag = null)
 {
     public bool Matches(Slot slot) => Summary == slot.Summary && Description == slot.Description && Start == slot.Start && End == slot.End && AllDayStart is null && DefaultReminders;
     public bool IsFuture(DateOnly today) => AllDayStart is { } day ? day >= today : Start is { } time && DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(time, SourceParser.Lisbon).DateTime) >= today;
 }
 public sealed record Desired(string Id, Slot Slot);
-public sealed record Change(string Kind, string Id, Slot? Slot, CalendarEntry? Existing)
+public sealed record Change(string Kind, string Id, Slot? Slot, CalendarEntry? Existing, int CandidateLimit = EventIdentity.CandidateLimit)
 {
     public object Report => new { kind = Kind, summary = Slot?.Summary ?? Existing!.Summary, start = Slot?.Start.ToString("O") ?? Existing!.Start?.ToString("O") ?? Existing!.AllDayStart?.ToString("yyyy-MM-dd"), end = Slot?.End.ToString("O") ?? Existing!.End?.ToString("O") ?? Existing!.AllDayEnd?.ToString("yyyy-MM-dd") };
 }
 public sealed record Plan(int SourceCount, int FutureCount, int Kept, List<Change> Actions)
 {
     public object Report => new { status = "success", sourceCount = SourceCount, futureCount = FutureCount, created = Actions.Count(x => x.Kind == "create"), deleted = Actions.Count(x => x.Kind == "delete"), kept = Kept, actions = Actions.Select(x => x.Report).ToArray() };
+}
+public static class EventIdentity
+{
+    public const int CandidateLimit = 100;
+    public static string Next(string id) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(id + ":occupied")));
+    public static IEnumerable<string> Candidates(string primary)
+    {
+        var id = primary;
+        for (var attempt = 0; attempt < CandidateLimit; attempt++, id = Next(id)) yield return id;
+    }
 }
 public static class Planner
 {
@@ -78,19 +88,16 @@ public static class Planner
         {
             var match = unmatched.FirstOrDefault(x => x.Matches(wanted.Slot));
             if (match is not null) { unmatched.Remove(match); kept++; continue; }
-            var id = wanted.Id;
-            var collision = existing.FirstOrDefault(x => x.Id == id);
-            var attempts = 0;
-            while (collision is not null && !unmatched.Contains(collision))
-            {
-                if (++attempts > 100) throw new SyncException("Cannot allocate safe event ID.");
-                id = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(id + ":protected")));
-                collision = existing.FirstOrDefault(x => x.Id == id);
-            }
+            // Predict the whole bounded chain before allocating: its primary may be
+            // a tombstone or a past entry absent from Google's timeMin listing.
+            var candidates = EventIdentity.Candidates(wanted.Id).ToArray();
+            var collision = candidates.Select(id => unmatched.FirstOrDefault(x => x.Id == id)).FirstOrDefault(x => x is not null);
+            var id = collision?.Id ?? candidates.FirstOrDefault(candidate => !existing.Any(x => x.Id == candidate))
+                ?? throw new SyncException("Cannot allocate safe event ID.");
             // Same deterministic ID edited manually: represent replacement in the plan,
             // but apply as PATCH, avoiding Google's deleted-ID tombstones.
             if (collision is not null) { unmatched.Remove(collision); actions.Add(new Change("delete", id, null, collision)); }
-            actions.Add(new Change("create", id, wanted.Slot, null));
+            actions.Add(new Change("create", id, wanted.Slot, null, candidates.Length - Array.IndexOf(candidates, id)));
         }
         actions.AddRange(unmatched.Select(x => new Change("delete", x.Id, null, x)));
         return new Plan(source.Count, future.Count, kept, actions);

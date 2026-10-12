@@ -83,5 +83,37 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(1, runner.run(False))
 
 
+    def test_atomic_result_ignores_insecure_stale_temporary(self):
+        stale = self.runtime / 'last-result.tmp'
+        stale.write_text('stale')
+        stale.chmod(0o644)
+        result = self.runtime / 'last-result.json'
+        runner.atomic_json(result, {'created': 1})
+        self.assertEqual(0o600, result.stat().st_mode & 0o777)
+        self.assertEqual('stale', stale.read_text())
+
+    def test_recognized_failure_diagnostics_are_saved_locally(self):
+        (self.runtime / 'apply-enabled').touch()
+        failure = subprocess.CompletedProcess([], 1, '', 'School requires CAPTCHA; manual sign-in required.\n')
+        with patch.object(runner.subprocess, 'run', return_value=failure), patch('sys.stderr', io.StringIO()) as out:
+            self.assertEqual(1, runner.run(False))
+            self.assertNotIn('CAPTCHA', out.getvalue())
+            diagnostic = self.runtime / 'last-failure.json'
+            self.assertEqual('School requires CAPTCHA; manual sign-in required.', json.loads(diagnostic.read_text())['message'])
+            self.assertEqual(0o600, diagnostic.stat().st_mode & 0o777)
+
+    def test_http_diagnostics_keep_status_but_reject_extra_content(self):
+        self.assertEqual('Google request failed (HTTP 403).', runner.safe_app_error('Google request failed (HTTP 403).\n'))
+        self.assertEqual('School transport failed.', runner.safe_app_error('School transport failed.'))
+        self.assertNotIn('secret-value', runner.safe_app_error('Google request failed (HTTP 403). secret-value'))
+
+    def test_unrecognized_stderr_is_not_saved_as_diagnostics(self):
+        (self.runtime / 'apply-enabled').touch()
+        failure = subprocess.CompletedProcess([], 1, '', 'sensitive-provider-value')
+        with patch.object(runner.subprocess, 'run', return_value=failure), patch('sys.stderr', io.StringIO()):
+            self.assertEqual(1, runner.run(False))
+            self.assertNotIn('sensitive-provider-value', (self.runtime / 'last-failure.json').read_text())
+
+
 if __name__ == '__main__':
     unittest.main()

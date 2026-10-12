@@ -11,7 +11,7 @@ This project has no AWS resources. Runtime is the **meireles** Hermes profile.
 - Nonsecret settings: `config.json` under the runtime directory.
 - Google key expected at `google-service-account.json` under the runtime directory, or update `GoogleCredentialsPath` to the actual external absolute path.
 - School credentials: `school.env`, JSON-quoted values for `AESO_SCHOOL_USERNAME` and `AESO_SCHOOL_PASSWORD`, mode 0600, never committed or printed.
-- Reconciliation result and recovery state: `last-result.json`, `status.json`; both owner-only.
+- Reconciliation result and recovery state: `last-result.json`, `status.json`; both owner-only. `last-failure.json` retains allowlisted sanitized app diagnostics and exit status locally; unknown stderr/provider content is discarded. Reports use exclusive unique temporary files with permissions explicitly set to 0600 before atomic replacement.
 - Apply permission: `apply-enabled` file. Absent by default. Never create before the live preview is explicitly approved.
 
 Credentials should be entered by the owner in their own interactive terminal:

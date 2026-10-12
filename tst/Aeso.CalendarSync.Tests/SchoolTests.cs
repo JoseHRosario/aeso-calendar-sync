@@ -16,8 +16,8 @@ public static class Fixtures
 {
     public static string Row(string date = "01-06-2027", string real = "2027-06-01T00:00:00", string time = "08:15-09:05", string title = "Teste de Matemática") => JsonSerializer.Serialize(new SchoolEntry(real, $"{date} ({time})", "Joana Brito", "Matemática", title));
     public static List<Slot> Slots(params string[] rows) => SourceParser.Parse("[" + string.Join(',', rows) + "]", new(2026, 9, 1), new(2027, 8, 31));
-    public static CalendarEntry Entry(Slot slot, string id = "manual") => new(id, slot.Summary, slot.Description, slot.Start, slot.End, null, true);
-    public static string Google(CalendarEntry e, string status = "confirmed") => JsonSerializer.Serialize(new { id = e.Id, summary = e.Summary, description = e.Description, status, etag = "\"etag1\"", start = new { dateTime = e.Start?.ToString("O") }, end = new { dateTime = e.End?.ToString("O") }, reminders = new { useDefault = e.DefaultReminders } });
+    public static CalendarEntry Entry(Slot slot, string id = "manual") => new(id, slot.Summary, slot.Description, slot.Start, slot.End, null, true, ETag: "\"etag1\"");
+    public static string Google(CalendarEntry e, string status = "confirmed") => JsonSerializer.Serialize(new { id = e.Id, summary = e.Summary, description = e.Description, status, etag = e.ETag, start = new { dateTime = e.Start?.ToString("O") }, end = new { dateTime = e.End?.ToString("O") }, reminders = new { useDefault = e.DefaultReminders } });
 }
 public class SchoolTests
 {

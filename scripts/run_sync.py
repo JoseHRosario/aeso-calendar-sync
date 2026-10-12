@@ -9,6 +9,47 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import re
+import tempfile
+
+
+def safe_app_error(stderr: str) -> str:
+    """Allow only known app diagnostics; never save arbitrary subprocess output."""
+    message = stderr.strip()
+    known = {
+        'School requires CAPTCHA; manual sign-in required.', 'School login rejected.',
+        'School CAPTCHA check invalid.', 'Missing school environment credentials.',
+        'School selection lacks enrolment evidence.',
+        'Configured enrolment and school year not authorized by selected student.',
+        'School year is not current; reconfigure enrolment before continuing.',
+        'School exceeded requested source limit.', 'Invalid source fields.',
+        'Source dates disagree.', 'Source outside configured school year.',
+        'Invalid or ambiguous Lisbon time.', 'Invalid source time interval.',
+        'Malformed source list.', 'Source changed during coverage expansion.',
+        'Source changed during final confirmation.',
+        'Empty source cannot authorize reconciliation.',
+        'Source coverage cap reached; reconciliation blocked.',
+        'Google pagination did not advance.', 'Google pagination cap reached.',
+        'Google write readback did not match requested event.',
+        'Google event changed after planning; refusing write.',
+        'Google event lacks concurrency evidence.',
+        'Google managed event lacks planning concurrency evidence.',
+        'Google planned event lacks concurrency evidence.',
+        'Google event is protected from writes.',
+        'Google replacement target disappeared; rerun preview.',
+        'Google insert conflict does not match requested event.',
+        'Google delete readback still found active event.',
+        'Google credentials must be a service account.',
+        'Local configuration or credential file could not be read.',
+        'Configuration or credential JSON is invalid.',
+        'Operation timed out or was cancelled.',
+        'Synchronization failed; no sensitive diagnostics emitted.',
+    }
+    if message in known or re.fullmatch(
+        r'(School|Google) (request failed \(HTTP [0-9]{3}\)|transport failed|returned malformed JSON)\.', message
+    ):
+        return message
+    return 'Application failed; unrecognized stderr was omitted for credential safety.'
 
 HOME = Path('/home/xungaman/.hermes/profiles/meireles')
 RUNTIME = HOME / 'aeso-calendar-sync'
@@ -17,11 +58,17 @@ APP = RUNTIME / 'app' / 'Aeso.CalendarSync.dll'
 
 def atomic_json(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    temporary = path.with_suffix('.tmp')
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, 'w') as stream:
-        json.dump(value, stream)
-    os.replace(temporary, path)
+    descriptor, name = tempfile.mkstemp(prefix=path.stem + '-', suffix='.tmp', dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, 'w') as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            json.dump(value, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def credentials(path: Path) -> dict[str, str]:
@@ -70,6 +117,7 @@ def run(preview: bool) -> int:
             print('[AESO] Automatic writes are disabled pending a verified live preview.', file=sys.stderr)
             return 1
         env = os.environ.copy()
+        diagnostic = {'phase': 'preview' if preview else 'apply', 'message': 'Local setup or launcher failed.'}
         try:
             env.update(credentials(RUNTIME / 'school.env'))
             completed = subprocess.run(
@@ -78,8 +126,9 @@ def run(preview: bool) -> int:
                 env=env, capture_output=True, text=True, timeout=180, check=False,
             )
             if completed.returncode:
-                # Do not echo provider bodies, tokens, private keys or raw subprocess stderr.
-                raise RuntimeError('Sync execution failed. Review sanitized local app diagnostics.')
+                # Retain only allowlisted diagnostics, never raw subprocess/provider output.
+                diagnostic.update(exitCode=completed.returncode, message=safe_app_error(completed.stderr))
+                raise RuntimeError('Sync execution failed. Review last-failure.json.')
             result = json.loads(completed.stdout)
             if result.get('status') != 'success':
                 raise RuntimeError('Sync returned an invalid status.')
@@ -100,8 +149,12 @@ def run(preview: bool) -> int:
                 print(summary(result, recovered))
             return 0
         except Exception:
-            if not preview:
-                atomic_json(RUNTIME / 'status.json', {'failed': True})
+            try:
+                atomic_json(RUNTIME / 'last-failure.json', diagnostic)
+                if not preview:
+                    atomic_json(RUNTIME / 'status.json', {'failed': True})
+            except OSError:
+                pass  # Reporting remains safe even if the local report cannot be written.
             print('[AESO] Sync failed; calendar may be stale. Authentication, source coverage, '
                   'Google permissions, or local setup require attention. '
                   'No failed source read is treated as an empty schedule. '

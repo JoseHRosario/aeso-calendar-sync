@@ -45,7 +45,7 @@ public class EdgeWriteTests
     {
         public int Writes;
         public Task<List<CalendarEntry>> List(DateOnly today, CancellationToken ct) { clock.Now = clock.Now.AddMinutes(2); return Task.FromResult(new List<CalendarEntry>()); }
-        public Task Create(string id, Slot slot, CancellationToken ct) { Writes++; return Task.CompletedTask; }
+        public Task Create(string id, Slot slot, CancellationToken ct, int candidateLimit = EventIdentity.CandidateLimit) { Writes++; return Task.CompletedTask; }
         public Task Replace(CalendarEntry before, Slot slot, CancellationToken ct) { Writes++; return Task.CompletedTask; }
         public Task Delete(CalendarEntry before, CancellationToken ct) { Writes++; return Task.CompletedTask; }
     }

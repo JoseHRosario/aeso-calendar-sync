@@ -10,7 +10,7 @@ public class RunnerTests
     {
         public int Lists; public List<string> Writes = []; public bool FailCreate;
         public Task<List<CalendarEntry>> List(DateOnly today, CancellationToken ct) { Lists++; return Task.FromResult(entries); }
-        public Task Create(string id, Slot slot, CancellationToken ct) { Writes.Add("create"); if (FailCreate) throw new SyncException("Write failed."); entries.Add(Fixtures.Entry(slot, id)); return Task.CompletedTask; }
+        public Task Create(string id, Slot slot, CancellationToken ct, int candidateLimit = EventIdentity.CandidateLimit) { Writes.Add("create"); if (FailCreate) throw new SyncException("Write failed."); entries.Add(Fixtures.Entry(slot, id)); return Task.CompletedTask; }
         public Task Replace(CalendarEntry before, Slot slot, CancellationToken ct) { Writes.Add("patch"); entries.Remove(before); entries.Add(Fixtures.Entry(slot, before.Id)); return Task.CompletedTask; }
         public Task Delete(CalendarEntry before, CancellationToken ct) { Writes.Add("delete"); entries.Remove(before); return Task.CompletedTask; }
     }
