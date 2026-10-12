@@ -11,6 +11,7 @@ appsettings.*.local.json
 *school-env*.json
 *live-events*.json
 publish/
+.worktrees/
 **/__pycache__/
 *.pyc
 .env
