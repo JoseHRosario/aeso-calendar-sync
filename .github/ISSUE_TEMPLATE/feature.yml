@@ -13,7 +13,7 @@ body:
     id: proposed-version
     attributes:
       label: Proposed version
-      description: "Semver this ships as (declared version — csproj <Version>, ADR 0012; the agent bumps it on the feature branch)."
+      description: "Proposed semantic version for this aeso-calendar-sync change, declared in the application csproj <Version>."
       placeholder: "0.2.0"
     validations:
       required: true
