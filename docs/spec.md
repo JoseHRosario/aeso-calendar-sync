@@ -1,5 +1,15 @@
 # Reconciliation specification
 
+## Secret-read barrier
+
+- Approved region/account: `eu-west-1` / `497087877832`. Parameters are SecureString JSON encrypted with `alias/aws/ssm`: `/aeso-calendar-sync/prod/school-credentials` and `/aeso-calendar-sync/prod/google-service-account`.
+- Live startup uses injected `IAmazonSimpleSystemsManagement.GetParametersAsync` with exactly those two names and `WithDecryption=true`. Require HTTP success, no `InvalidParameters`, exactly two unique expected names, SecureString type, nonblank values and exact region/account/path ARNs. Missing, duplicate, unexpected or untrusted responses fail closed.
+- School JSON has required nonblank string `Username` and `Password`, case-insensitive; duplicate properties (including casing variants), unknown members, wrong types and malformed JSON fail. Preserve credential values without trimming.
+- Google JSON must be an object with unique properties, exact `type:service_account`, valid `client_email` in `*.iam.gserviceaccount.com`, parseable PKCS8 RSA `private_key`, exact `token_uri:https://oauth2.googleapis.com/token`, and absent or standard `universe_domain:googleapis.com`. Construct a scoped in-memory `ServiceAccountCredential` using the supported Google `CredentialFactory.FromJsonParameters` with only validated fields; ancillary JSON never controls credential sources, delegation or endpoints.
+- Fetch once per live process; cache only the in-memory task/snapshot (including failure), not secrets on disk. No legacy file/environment/CLI secret fallback. Parameter rotation takes effect on the next process. SDK internal retry is bounded to two retries; application never repeats a failed snapshot load.
+- Explicit native SDK profile `aeso-calendar-sync` and region are mandatory. A missing/unusable named profile fails without default/environment/instance credential-chain fallback. Workload bootstrap and dedicated-role binding are deployment responsibilities, outside application scope; no STS check or invented role name.
+- All reads and credential validation precede school/calendar requests. Raw AWS/Google/JSON exception text, inner exceptions and payloads are not emitted. Offline source modes never create an AWS client or load secrets.
+
 ## Source authority
 
 - Import every Events-list row (`agendaProf`), including visits, tests, projects, and other categories. Do not read the regular lesson schedule.
@@ -11,7 +21,7 @@
 
 ## Complete-read barrier
 
-Login, configured current school-year check, selected student context, selected enrolment validation, complete source retrieval, final repeat confirmation, complete Google list, and deterministic plan must succeed before any calendar write.
+Validated complete in-memory SSM snapshot (both parameters and locally constructed Google service-account credential), login, configured current school-year check, selected student context, selected enrolment validation, complete source retrieval, final repeat confirmation, complete Google list, and deterministic plan must succeed before any calendar write.
 
 Source coverage requests the whole configured enrolment/year at increasing limits. Compare the previous ordered prefix against each larger response; any shrink or change fails. A response with `count < requestedLimit` is a candidate complete result, and a second request at that same limit must return the same ordered rows and values. `count == limit` at the maximum cap fails. More rows than requested fails. Empty source always fails because the undocumented API cannot supply trustworthy empty completeness evidence. There is no automatic empty-source deletion escape hatch.
 

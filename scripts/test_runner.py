@@ -22,9 +22,6 @@ class RunnerTests(unittest.TestCase):
         self.scope.start()
         self.addCleanup(self.scope.stop)
         self.addCleanup(self.directory.cleanup)
-        self.credentials = self.runtime / 'school.env'
-        self.credentials.write_text('AESO_SCHOOL_USERNAME="test-user"\nAESO_SCHOOL_PASSWORD="dummy-test-value"\n')
-        self.credentials.chmod(0o600)
 
     def result(self, created=0, deleted=0):
         return subprocess.CompletedProcess([], 0, json.dumps({
@@ -45,13 +42,14 @@ class RunnerTests(unittest.TestCase):
             self.assertFalse((self.runtime / 'apply-enabled').exists())
             self.assertFalse((self.runtime / 'status.json').exists())
 
-    def test_noop_is_silent_and_credentials_only_in_child_environment(self):
+    def test_noop_is_silent_without_local_secret_files(self):
         (self.runtime / 'apply-enabled').touch()
         with patch.object(runner.subprocess, 'run', return_value=self.result()) as call, patch('sys.stdout', io.StringIO()) as out:
             self.assertEqual(0, runner.run(False))
             self.assertEqual('', out.getvalue())
             self.assertNotIn('dummy-test-value', str(call.call_args.args[0]))
-            self.assertEqual('dummy-test-value', call.call_args.kwargs['env']['AESO_SCHOOL_PASSWORD'])
+            self.assertNotIn('AESO_SCHOOL_PASSWORD', call.call_args.kwargs['env'])
+            self.assertFalse((self.runtime / 'school.env').exists())
             self.assertFalse(json.loads((self.runtime / 'status.json').read_text())['failed'])
 
     def test_failures_are_sanitized_and_recovery_is_reported(self):
@@ -71,10 +69,12 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn('@everyone', text)
         self.assertIn('Created: 1', text)
 
-    def test_world_readable_credentials_are_refused(self):
-        self.credentials.chmod(0o644)
-        with self.assertRaises(ValueError):
-            runner.credentials(self.credentials)
+    def test_legacy_school_environment_is_not_passed_to_child(self):
+        with patch.dict(os.environ, {'AESO_SCHOOL_USERNAME': 'legacy-user', 'AESO_SCHOOL_PASSWORD': 'dummy-test-value'}):
+            with patch.object(runner.subprocess, 'run', return_value=self.result()) as call, patch('sys.stdout', io.StringIO()):
+                self.assertEqual(0, runner.run(True))
+                self.assertNotIn('AESO_SCHOOL_USERNAME', call.call_args.kwargs['env'])
+                self.assertNotIn('AESO_SCHOOL_PASSWORD', call.call_args.kwargs['env'])
 
     def test_wrong_counts_fail_not_silent_success(self):
         (self.runtime / 'apply-enabled').touch()

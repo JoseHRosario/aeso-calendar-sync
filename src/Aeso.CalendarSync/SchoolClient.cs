@@ -7,57 +7,6 @@ using System.Text.Json;
 
 namespace Aeso.CalendarSync;
 
-public sealed class SyncConfig
-{
-    public string CalendarId { get; set; } = "0e970019a6c7d52ea314fcbaf561159f0ce90a80f9764b7d40fbe7182973de3a@group.calendar.google.com";
-    public string GoogleCredentialsPath { get; set; } = "";
-    public string SchoolOrigin { get; set; } = "https://aeso.inovarmais.com";
-    public int SchoolEnrolmentId { get; set; } = 43850;
-    public int SchoolTipoEnsino { get; set; } = 1;
-    public int SchoolStudentId { get; set; } = 8937;
-    public int SchoolYear { get; set; } = 2026;
-    public int SourceInitialLimit { get; set; } = 30;
-    public int SourceLimitStep { get; set; } = 15;
-    public int SourceMaximumLimit { get; set; } = 3000;
-    public DateOnly YearStart => new(SchoolYear, 9, 1);
-    public DateOnly YearEnd => new(SchoolYear + 1, 8, 31);
-    public string Scope => $"{SchoolOrigin}/{SchoolEnrolmentId}/{SchoolTipoEnsino}/{SchoolYear}";
-    public void Validate(DateOnly today)
-    {
-        if (SchoolOrigin != "https://aeso.inovarmais.com" || SchoolEnrolmentId <= 0 || SchoolTipoEnsino <= 0 || SchoolStudentId <= 0 || SchoolYear < 2000 || SchoolYear > 9000 || string.IsNullOrWhiteSpace(CalendarId)) throw new SyncException("Invalid configuration or unsupported school origin.");
-        if (today < YearStart || today > YearEnd) throw new SyncException("School year is not current; reconfigure enrolment before continuing.");
-        if (SourceInitialLimit < 1 || SourceLimitStep < 1 || SourceLimitStep > 10000 || SourceMaximumLimit <= SourceInitialLimit || SourceMaximumLimit > 10000) throw new SyncException("Invalid source coverage limits.");
-    }
-}
-public static class Transport
-{
-    public static async Task<HttpResponseMessage> Send(HttpClient client, Func<HttpRequestMessage> factory, string service, bool retry, CancellationToken ct)
-    {
-        for (var attempt = 0; ; attempt++)
-        {
-            try
-            {
-                using var request = factory();
-                var response = await client.SendAsync(request, ct);
-                var transient = response.StatusCode == HttpStatusCode.TooManyRequests || (int)response.StatusCode >= 500;
-                if (!transient || !retry || attempt == 2) return response;
-                response.Dispose();
-            }
-            catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException && !ct.IsCancellationRequested)
-            {
-                if (!retry || attempt == 2) throw new SyncException(service + " transport failed.");
-            }
-            await Task.Delay(TimeSpan.FromMilliseconds(200 * (attempt + 1)), ct);
-        }
-    }
-    public static async Task<JsonElement> Read(HttpResponseMessage response, string service, CancellationToken ct)
-    {
-        if (!response.IsSuccessStatusCode) throw new SyncException(service + " request failed (HTTP " + (int)response.StatusCode + ").");
-        try { using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct)); return document.RootElement.Clone(); }
-        catch (JsonException) { throw new SyncException(service + " returned malformed JSON."); }
-    }
-}
-public interface ISchoolSource { Task<List<Slot>> Read(CancellationToken ct); }
 public sealed class SchoolClient(HttpClient http, SyncConfig config, string username, string password, TimeProvider clock) : ISchoolSource
 {
     private string? token;
@@ -80,7 +29,7 @@ public sealed class SchoolClient(HttpClient http, SyncConfig config, string user
     {
         token = null;
         config.Validate(DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(clock.GetUtcNow(), SourceParser.Lisbon).DateTime));
-        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password)) throw new SyncException("Missing school environment credentials.");
+        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password)) throw new SyncException("Missing school credentials.");
         var session = Guid.NewGuid().ToString();
         var burned = await Call(HttpMethod.Post, "login/isUserBurned", new { UserEmail = session }, null, ct);
         if (!burned.TryGetProperty("BurnedUser", out var flag) || flag.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) throw new SyncException("School CAPTCHA check invalid.");

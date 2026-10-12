@@ -1,6 +1,6 @@
 # AESO calendar sync
 
-Deterministic .NET 10 console application for the AESO **Events list**, not the regular lesson timetable. No frontend, public server, AWS, or embedded scheduler.
+Deterministic .NET 10 console application for the AESO **Events list**, not the regular lesson timetable. No frontend, public server, or embedded scheduler. Application secrets are fetched from AWS SSM Parameter Store into memory.
 
 ## Build and test
 
@@ -15,7 +15,7 @@ All default tests are hermetic. They use fake `HttpMessageHandler` transports an
 
 ## Run
 
-Supply **absolute** configuration and Google service-account credential paths. Copy the shape of `appsettings.example.json` into an external runtime configuration file; do not put credentials in this repository.
+Supply an **absolute** nonsecret configuration path. Copy `appsettings.example.json` into an external runtime configuration file; do not put credentials in it or this repository.
 
 ```bash
 dotnet /absolute/deployment/path/Aeso.CalendarSync.dll --config /absolute/private/config.json --dry-run
@@ -25,7 +25,9 @@ dotnet /absolute/deployment/path/Aeso.CalendarSync.dll --config /absolute/privat
 dotnet /absolute/deployment/path/Aeso.CalendarSync.dll --config /absolute/private/config.json --apply
 ```
 
-The launcher injects `AESO_SCHOOL_USERNAME` and `AESO_SCHOOL_PASSWORD` as environment variables from a private external store. Do not type school passwords in chat, pass them as arguments, or add them to app configuration. Service-account JSON stays in its external protected file. Grant that account permission to edit the existing target calendar and enable Google Calendar API in its Google project. No real Google access has been validated by the hermetic suite.
+Live startup resolves only the native AWS SDK profile `aeso-calendar-sync`, then fetches the two approved SecureString parameters in one `GetParameters` request with `WithDecryption=true`. Both payloads must validate before any school or calendar request. Secrets and Google credentials remain in memory for the process lifetime; there is no disk cache, environment secret loading, credential-file fallback or secret-bearing CLI option. Each new process fetches a fresh snapshot. A missing/invalid profile fails rather than falling back to ambient AWS credentials.
+
+The dedicated workload profile/bootstrap is provisioned outside the application (approved host IAM Roles Anywhere certificate/key exception); the app never creates or edits AWS configuration, logs in or manages AWS caches. No caller role ARN is hardcoded or checked with STS: deployment must bind this dedicated profile to the approved role, never a personal/Minerva identity. Grant the Google service account edit access to the existing calendar and enable Calendar API. Hermetic tests do not verify live AWS identity, parameter access or Google permissions.
 
 ### Offline source validation
 
@@ -56,7 +58,11 @@ Offline success has `status`, `mode` (`offline-validation` or `offline-source-pr
 | Property | Default / rule |
 |---|---|
 | `CalendarId` | Exact calendar ID in the example; calendar must be shared to the service account |
-| `GoogleCredentialsPath` | Required absolute path for live operation |
+| `AwsRegion` | `eu-west-1`, pinned for live operation |
+| `AwsProfile` | Dedicated native SDK profile `aeso-calendar-sync`; no ambient fallback |
+| `AwsAccountId` | `497087877832`, validated against each parameter ARN |
+| `SchoolCredentialsParameter` | `/aeso-calendar-sync/prod/school-credentials` |
+| `GoogleServiceAccountParameter` | `/aeso-calendar-sync/prod/google-service-account` |
 | `SchoolOrigin` | Fixed allowlisted `https://aeso.inovarmais.com`; other origins rejected |
 | `SchoolEnrolmentId` | `43850` |
 | `SchoolTipoEnsino` | `1` |
@@ -66,6 +72,6 @@ Offline success has `status`, `mode` (`offline-validation` or `offline-source-pr
 | `SourceLimitStep` | `15` |
 | `SourceMaximumLimit` | `3000`; maximum configurable 10000; equality at cap fails |
 
-Unknown configuration properties are rejected to catch misspellings. At/after **2027-09-01**, current default scope refuses to run until the new enrolment/year are explicitly configured. Selected-student enrolment evidence must contain the configured `MatriculaId`, `TipoEnsino`, and `AnoLectivo`.
+Unknown configuration properties are rejected, including legacy `GoogleCredentialsPath`, username/password and environment/file secret configuration keys. The five AWS fields are nonsecret and pinned to the approved values for live operation. At/after **2027-09-01**, current default scope refuses to run until the new enrolment/year are explicitly configured. Selected-student enrolment evidence must contain the configured `MatriculaId`, `TipoEnsino`, and `AnoLectivo`.
 
 Read [docs/spec.md](docs/spec.md), [docs/architecture.md](docs/architecture.md), and [docs/setup.md](docs/setup.md) before enabling apply. Scripts, secret setup, notifications, live preview approval, and daily Hermes deployment are deliberately outside this application's scope.

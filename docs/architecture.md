@@ -2,9 +2,11 @@
 
 ## Modules
 
-- `src/Aeso.CalendarSync/Program.cs`: argument/configuration validation, offline validation, service-account-only credential loading, secure composition, sanitized single-line process contract.
+- `src/Aeso.CalendarSync/Program.cs`: minimal entry point; `Command.cs`: CLI/config validation, offline branch and live startup barrier, secure composition and sanitized process contract.
+- `AwsSsmClientFactory.cs`: explicit native named-profile resolution and region, bounded SDK retries, client ownership at composition. No ambient credential fallback or AWS config mutation.
+- `SsmSecretProvider.cs`: injected AWS SDK GetParameters, complete response validation and one memory-only snapshot task. `SecretPayloadParser.cs`, `SchoolCredentials.cs`, `SecretSnapshot.cs`: strict JSON/type/endpoint validation and typed in-memory secrets/Google credential.
 - `Domain.cs`: source interpretation, Lisbon times, immutable calendar projection, canonical multiset identity and deterministic plan. No HTTP or filesystem dependencies.
-- `School.cs`: fixed-origin school HTTP adapter and bounded retry helper. Acquires parent token, selects the backend student on the server, validates enrolment evidence, and establishes complete/stable source coverage.
+- `SchoolClient.cs`, `ISchoolSource.cs`, `Transport.cs`, `SyncConfig.cs`: fixed-origin school HTTP adapter, bounded retry helper and nonsecret configuration. Acquires parent token, selects the backend student on the server, validates enrolment evidence, and establishes complete/stable source coverage.
 - `Google.cs`: paginated Calendar HTTP adapter, exact GET readbacks, ETag race protection and apply runner. `Google.Apis.Auth` is used only to obtain service-account access tokens; Calendar requests use injected `HttpClient`.
 - `tst/Aeso.CalendarSync.Tests`: public parser/planner, HTTP transport, runner and CLI seams. Fixed clock and fake transports; no network, live accounts or test secret prerequisites.
 
@@ -32,4 +34,4 @@ The source path is `/consulta/api/agendaProf/{SchoolEnrolmentId}/{SchoolTipoEnsi
 
 Unknown source or Google shape fails closed, as do empty source, unstable batches, pagination loops, year rollover and CAPTCHA. Sanitized errors identify operation/status without remote response contents. The launcher should retain only necessary private diagnostics, notify failures/recovery, and serialize runs with a lock. Overlapping independent reconciliations cannot form a transaction; deterministic IDs and ETags reduce, but do not eliminate, concurrent-run races.
 
-API retries are three attempts for transient reads and idempotent Google writes, with 200/400 ms delays. Each production HTTP request has a 30-second timeout and live run has a ten-minute deadline. Cancellation is propagated. Tokens are only in process memory, not cached to disk. Credential loading explicitly uses `CredentialFactory.FromFileAsync<ServiceAccountCredential>` and rejects non-service-account JSON.
+API retries are three attempts for transient reads and idempotent Google writes, with 200/400 ms delays. Each production HTTP request has a 30-second timeout and live run has a ten-minute deadline. Cancellation is propagated. Tokens are only in process memory, not cached to disk. Credential construction uses `JsonDocument` validation followed by `CredentialFactory.FromJsonParameters<ServiceAccountCredential>` from allowlisted in-memory fields, with Calendar events scope. No credential file or environment secret reader remains. Offline tests cover native SDK process-profile construction without executing the credential process, injected SDK responses/errors, strict payload validation and the production CLI-to-school bootstrap with synthetic credentials; no real AWS, OAuth or calendar request is made.

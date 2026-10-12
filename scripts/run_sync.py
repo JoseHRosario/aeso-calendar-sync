@@ -44,6 +44,9 @@ def safe_app_error(stderr: str) -> str:
         'Configuration or credential JSON is invalid.',
         'Operation timed out or was cancelled.',
         'Synchronization failed; no sensitive diagnostics emitted.',
+        'Invalid AWS secret configuration.', 'AWS runtime profile is unavailable.',
+        'SSM secret retrieval failed.', 'SSM secret snapshot is invalid or incomplete.',
+        'SSM secret payload is invalid.',
     }
     if message in known or re.fullmatch(
         r'(School|Google) (request failed \(HTTP [0-9]{3}\)|transport failed|returned malformed JSON)\.', message
@@ -69,25 +72,6 @@ def atomic_json(path: Path, value: dict) -> None:
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
-
-
-def credentials(path: Path) -> dict[str, str]:
-    if path.stat().st_mode & 0o077:
-        raise ValueError('School credential file must not be group/world accessible.')
-    values = {}
-    for line in path.read_text().splitlines():
-        if not line.strip() or line.startswith('#'):
-            continue
-        key, encoded = line.split('=', 1)
-        if key not in {'AESO_SCHOOL_USERNAME', 'AESO_SCHOOL_PASSWORD'}:
-            raise ValueError('Unexpected school credential setting.')
-        value = json.loads(encoded)
-        if not isinstance(value, str) or not value:
-            raise ValueError('Missing school credential.')
-        values[key] = value
-    if set(values) != {'AESO_SCHOOL_USERNAME', 'AESO_SCHOOL_PASSWORD'}:
-        raise ValueError('Missing school credential.')
-    return values
 
 
 def summary(result: dict, recovery: bool) -> str:
@@ -117,9 +101,11 @@ def run(preview: bool) -> int:
             print('[AESO] Automatic writes are disabled pending a verified live preview.', file=sys.stderr)
             return 1
         env = os.environ.copy()
+        # Application secrets are read from SSM by the C# process, never injected here.
+        for key in ('AESO_SCHOOL_USERNAME', 'AESO_SCHOOL_PASSWORD'):
+            env.pop(key, None)
         diagnostic = {'phase': 'preview' if preview else 'apply', 'message': 'Local setup or launcher failed.'}
         try:
-            env.update(credentials(RUNTIME / 'school.env'))
             completed = subprocess.run(
                 [str(Path.home() / '.dotnet' / 'dotnet'), str(APP), '--config',
                  str(RUNTIME / 'config.json'), '--dry-run' if preview else '--apply'],

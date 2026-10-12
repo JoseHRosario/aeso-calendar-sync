@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="4.0.104.3" />
     <PackageReference Include="Google.Apis.Auth" Version="1.77.0" />
   </ItemGroup>
 
