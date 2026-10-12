@@ -18,7 +18,7 @@ def safe_app_error(stderr: str) -> str:
     message = stderr.strip()
     known = {
         'School requires CAPTCHA; manual sign-in required.', 'School login rejected.',
-        'School CAPTCHA check invalid.', 'Missing school environment credentials.',
+        'School CAPTCHA check invalid.', 'Missing school credentials.',
         'School selection lacks enrolment evidence.',
         'Configured enrolment and school year not authorized by selected student.',
         'School year is not current; reconfigure enrolment before continuing.',
@@ -109,7 +109,7 @@ def run(preview: bool) -> int:
             completed = subprocess.run(
                 [str(Path.home() / '.dotnet' / 'dotnet'), str(APP), '--config',
                  str(RUNTIME / 'config.json'), '--dry-run' if preview else '--apply'],
-                env=env, capture_output=True, text=True, timeout=180, check=False,
+                env=env, capture_output=True, text=True, timeout=660, check=False,
             )
             if completed.returncode:
                 # Retain only allowlisted diagnostics, never raw subprocess/provider output.

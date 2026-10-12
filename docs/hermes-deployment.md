@@ -46,7 +46,7 @@ Job `4dda4ecf1a1c`, name `aeso-calendar-sync`, remains **paused** pending live v
 - Script-only `no-agent`; no LLM calls.
 - Change/recovery stdout goes to Discord `1479872936230781052` (`#meireles`). Empty stdout is silent.
 - Failure delivery goes to the same channel; launcher stderr is sanitized.
-- Launcher timeout180 seconds; exclusive lock prevents overlapping local runs.
+- Launcher timeout660 seconds, allowing the application's ten-minute cancellation deadline to expire before watchdog termination; exclusive lock prevents overlapping local runs.
 
 Use Hermes CLI/tools, never hand-edit cron storage. Do not unpause until workload identity and secrets are verified, a live preview is approved, and first apply is verified through exact Google readbacks. A running gateway/ticker and host are required; an unavailable host cannot notify Discord. Calendar writes are not transactional: an interrupted Google apply can leave a partial plan; deterministic IDs reconcile it on retry.
 

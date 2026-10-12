@@ -115,5 +115,14 @@ class RunnerTests(unittest.TestCase):
             self.assertNotIn('sensitive-provider-value', (self.runtime / 'last-failure.json').read_text())
 
 
+    def test_school_missing_credentials_diagnostic_is_preserved(self):
+        self.assertEqual('Missing school credentials.', runner.safe_app_error('Missing school credentials.'))
+
+    def test_launcher_watchdog_allows_application_deadline_to_expire_first(self):
+        with patch.object(runner.subprocess, 'run', return_value=self.result()) as call, patch('sys.stdout', io.StringIO()):
+            self.assertEqual(0, runner.run(True))
+            self.assertEqual(660, call.call_args.kwargs['timeout'])
+
+
 if __name__ == '__main__':
     unittest.main()
