@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Aeso.CalendarSync/Aeso.CalendarSync.csproj" />
+  </Folder>
+  <Folder Name="/tst/">
+    <Project Path="tst/Aeso.CalendarSync.Tests/Aeso.CalendarSync.Tests.csproj" />
+  </Folder>
+</Solution>

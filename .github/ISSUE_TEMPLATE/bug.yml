@@ -1,0 +1,31 @@
+name: Bug
+description: "Something that worked as intended is broken (code regression, wrong behavior, broken config). Branch convention: bug/<issue#>-<slug>. PR must end with \"Closes #N\"."
+labels: [bug]
+body:
+  - type: textarea
+    id: what-broke
+    attributes:
+      label: What broke
+      description: One paragraph — expected vs actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, verifiable steps from a clean state.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How we verify it's fixed — one checkbox per criterion.
+      placeholder: "- [ ] "
+    validations:
+      required: true
+  - type: textarea
+    id: suspected-cause
+    attributes:
+      label: Suspected cause / affected area
+      description: Optional — area of the code, config, or infra you suspect.
